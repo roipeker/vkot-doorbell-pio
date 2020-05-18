@@ -23,7 +23,7 @@ bool isRelayOn = false;
 bool isWifiOn = false;
 bool isButtonPressed = false;
 
-int buttonDebounceDelay = 900;  // 50 ms
+int buttonDebounceDelay = 50;  // 50 ms
 volatile long buttonLastDebounceTime = 0;
 
 // firebase realtime database.
