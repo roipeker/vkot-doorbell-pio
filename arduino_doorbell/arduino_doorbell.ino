@@ -4,8 +4,8 @@
 #include <ESP8266WiFi.h>
 #include <FirebaseESP8266.h>
 #include <WiFiManager.h>  //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
-#include <constants.h>
 #include <jled.h>
+#include "constants.h"
 
 // constants.h defines the custom vars
 // #define FIREBASE_HOST "https://NAMEHERE.firebaseio.com"
@@ -23,7 +23,7 @@ bool isRelayOn = false;
 bool isWifiOn = false;
 bool isButtonPressed = false;
 
-int buttonDebounceDelay = 50;  // 50 ms
+int buttonDebounceDelay = 900;  // 50 ms
 volatile long buttonLastDebounceTime = 0;
 
 // firebase realtime database.
@@ -190,6 +190,7 @@ void turnRelayRemote(bool flag) {
 }
 
 void execFactoryReset() {
+  return ;
   Firebase.pushTimestamp(fbLogsData, fbPathLogsReset);
   Serial.println("Factory reset hit.");
   delay(500);
