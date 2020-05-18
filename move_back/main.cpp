@@ -470,7 +470,8 @@ void loopFirebase() {
 }
 
 void setup() {
-  Serial.begin(9600);
+  // Serial.begin(9600);
+  Serial.begin(115200,SERIAL_8N1,SERIAL_TX_ONLY);
   delay(100);
   setupPins();
   setupWifi();
