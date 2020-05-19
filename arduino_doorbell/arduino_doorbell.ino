@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 #include <ESP8266HTTPClient.h>
-#include <ESP8266Ping.h>
+#include "ESP8266Ping.h"
 #include <ESP8266WebServer.h>  //Local WebServer used to serve the configuration portal
 #include <ESP8266WiFi.h>
 #include <FirebaseESP8266.h>
