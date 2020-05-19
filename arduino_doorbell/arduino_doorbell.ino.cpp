@@ -1,41 +1,36 @@
+# 1 "/var/folders/n5/nl59r_rd49g4wgqkfcqy0bs40000gn/T/tmpbsf1j7h_"
+#include <Arduino.h>
+# 1 "/Volumes/mydata/dev/repos/vkot/doorbell/vkot-doorbell-pio/arduino_doorbell/arduino_doorbell.ino"
 #include <Arduino.h>
 #include <ESP8266HTTPClient.h>
-#include <ESP8266WebServer.h>  //Local WebServer used to serve the configuration portal
+#include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <FirebaseESP8266.h>
-#include <WiFiManager.h>  //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
+#include <WiFiManager.h>
 #include <jled.h>
 
 #include "constants.h"
-
-// constants.h defines the custom vars
-// #define FIREBASE_HOST "https://NAMEHERE.firebaseio.com"
-// #define FIREBASE_AUTH "000000000000000000000000"
-// #define PIN_RELAY 0
-// #define PIN_STATUS_LED 1
-// #define PIN_BUTTON 2
-// #define LED_INV 0
-
+# 19 "/Volumes/mydata/dev/repos/vkot/doorbell/vkot-doorbell-pio/arduino_doorbell/arduino_doorbell.ino"
 #define IP_API_URL "http://api.ipify.org/"
-#define DEFAULT_RELAY_DURATION_MS 4000       // 4 sec door opens.
-#define FACTORY_RESET_PRESS_TIMEOUT_MS 8000  // 8 seconds pressed.
-#define DEFAULT_PRESS_COUNT_ACTIVATE 5       // 5 rings, can't be < 2.
-#define DEFAULT_PRESS_COUNT_TIMEOUT_MS 4000  // in 4 secs, to open door
+#define DEFAULT_RELAY_DURATION_MS 4000
+#define FACTORY_RESET_PRESS_TIMEOUT_MS 8000
+#define DEFAULT_PRESS_COUNT_ACTIVATE 5
+#define DEFAULT_PRESS_COUNT_TIMEOUT_MS 4000
 #define DEFAULT_WIFI_AP_TIMEOUT \
-  30  // Wifi 30 SECONDS to fail on setup(), and do offline
+  30
 
-int BUTTON_DEBOUNCE = 50;  // 50 ms
+int BUTTON_DEBOUNCE = 50;
 
 bool isRelayOn = false;
 bool isButtonPressed = false;
 bool isWifiConnected = false;
-int lastWifiStatus = -1;  // check for WL_CONNECTED
+int lastWifiStatus = -1;
 
-// log connection info and network status (noise).
+
 volatile long buttonLastDebounceTime = 0;
 volatile long wifiLastDebounceTime = 0;
 
-// firebase realtime database.
+
 FirebaseData fbData;
 FirebaseData fbPushData;
 FirebaseData fbLogsData;
@@ -46,30 +41,61 @@ String fbPathState = "devices/" + devId + "/state";
 String fbPathLogsPush = "devices/" + devId + "/logs/push";
 String fbPathLogsLogin = "devices/" + devId + "/logs/login";
 String fbPathLogsReset = "devices/" + devId + "/logs/reset";
-String fbPathLogsOpen = "devices/" + devId + "/logs/open";  // activate system.
+String fbPathLogsOpen = "devices/" + devId + "/logs/open";
 
 unsigned long ms;
 unsigned long relayStartTime = 0;
-unsigned long factoryResetStartTime = 0;  // hits FACTORY_RESET_PRESS_TIMEOUT_MS
+unsigned long factoryResetStartTime = 0;
 
 int relayTimeoutDelay = DEFAULT_RELAY_DURATION_MS;
 int pressCountActivateRelay = DEFAULT_PRESS_COUNT_ACTIVATE;
 int pressCountTimeout = DEFAULT_PRESS_COUNT_TIMEOUT_MS;
 
-// global flag to change status of the push system activation.
+
 bool systemEnabled = true;
 
-int resetBlinkState = -1;  // factory reset LED bomb blink state.
+int resetBlinkState = -1;
 
-int pressCount = 0;                     // this is the actual counter.
-unsigned long pressCountStartTime = 0;  // millis when first press.
+int pressCount = 0;
+unsigned long pressCountStartTime = 0;
 
 HTTPClient http;
 
-// todo: improve led states.
+
 JLed ledPrimary = JLed(PIN_STATUS_LED);
 JLed ledSecondary = JLed(PIN_STATUS_LED);
-
+void printResult(FirebaseData &data);
+void setRelayOnDuration(int duration);
+void setPressCountActivation(int count);
+void setPressCountTimeout(int duration);
+void sendLogin();
+void sendPressNoti();
+void turnRelay(bool flag);
+void turnRelayRemote(bool flag);
+void execFactoryReset();
+void startFactoryResetTimeout(bool flag);
+void checkFactoryResetTimeout();
+void pausePrimaryLed(int nextTime);
+void checkPressCountTimeout();
+void onButtonPressed(bool flag);
+void readButtonState();
+void setupPins();
+void wifiManConfigModeCallback(WiFiManager *myWiFiManager);
+void setupWifiManager();
+void setupWifi();
+void setupFirebase();
+void checkRelayOnTimer();
+void sysEnabledBlink();
+void setConfigSysEnabled(bool flag);
+void checkCommand(int cmdId);
+void readFirebaseStream();
+void loopFirebase();
+void setup();
+void onWifiConnectionChange();
+void loopWifi();
+void loopLed();
+void loop();
+#line 73 "/Volumes/mydata/dev/repos/vkot/doorbell/vkot-doorbell-pio/arduino_doorbell/arduino_doorbell.ino"
 void printResult(FirebaseData &data) {
   if (data.dataType() == "int")
     Serial.println(data.intData());
@@ -84,7 +110,7 @@ void printResult(FirebaseData &data) {
   else if (data.dataType() == "json") {
     Serial.println();
     FirebaseJson &json = data.jsonObject();
-    // Print all object data
+
     Serial.println("Pretty printed JSON data:");
     String jsonStr;
     json.toString(jsonStr, true);
@@ -111,9 +137,9 @@ void printResult(FirebaseData &data) {
     json.iteratorEnd();
   } else if (data.dataType() == "array") {
     Serial.println();
-    // get array data from FirebaseData using FirebaseJsonArray object
+
     FirebaseJsonArray &arr = data.jsonArray();
-    // Print all array values
+
     Serial.println("Pretty printed Array:");
     String arrStr;
     arr.toString(arrStr, true);
@@ -126,7 +152,7 @@ void printResult(FirebaseData &data) {
       Serial.print(", Value: ");
 
       FirebaseJsonData &jsonData = data.jsonData();
-      // Get the result data from FirebaseJsonArray object
+
       arr.get(jsonData, i);
       if (jsonData.typeNum == FirebaseJson::JSON_BOOL)
         Serial.println(jsonData.boolValue ? "true" : "false");
@@ -158,7 +184,7 @@ void setPressCountTimeout(int duration) {
 
 void sendLogin() {
   Firebase.pushTimestamp(fbLogsData, fbPathLogsLogin);
-  // update IP once.
+
   http.begin(IP_API_URL);
   http.GET();
   String ipPayload = http.getString();
@@ -202,7 +228,7 @@ void sendLogin() {
   }
 }
 
-// logic
+
 void sendPressNoti() { Firebase.pushTimestamp(fbLogsData, fbPathLogsPush); }
 
 void turnRelay(bool flag) {
@@ -211,7 +237,7 @@ void turnRelay(bool flag) {
   Serial.print("Turn relay: ");
   Serial.println(isRelayOn);
   if (flag) {
-    // make led stay on for this much.
+
     ledSecondary.Blink(relayTimeoutDelay, 10).Repeat(1);
   }
 
@@ -221,12 +247,12 @@ void turnRelay(bool flag) {
 }
 
 void turnRelayRemote(bool flag) {
-  // todo: check if we need to update time here.
+
   if (isRelayOn == flag) {
     return;
   }
 
-  // reset counter to avoid overlapping of remote command.
+
   pressCountStartTime = 0;
   pressCount = 0;
 
@@ -293,13 +319,13 @@ void checkFactoryResetTimeout() {
   }
 }
 
-// manual delay of primary LED pattern (wifi on/off)
-// todo: make it consistent in the system to avoid failures.
+
+
 double primLedPauseUntil = 0;
 void pausePrimaryLed(int nextTime) { primLedPauseUntil = ms + nextTime; }
 
 void checkPressCountTimeout() {
-  // only if system enabled
+
   if (!systemEnabled || pressCountStartTime == 0) return;
   bool isValidTime = ms < pressCountStartTime + pressCountTimeout;
   if (!isValidTime) {
@@ -313,9 +339,9 @@ void checkPressCountTimeout() {
 void onButtonPressed(bool flag) {
   Serial.println(flag ? "Button pressed" : "Button released");
   startFactoryResetTimeout(flag);
-  // turnRelay(flag);
+
   if (!flag) {
-    // system is not enabled.
+
     if (!systemEnabled) {
       return;
     }
@@ -331,14 +357,14 @@ void onButtonPressed(bool flag) {
       Serial.println();
       turnRelayRemote(true);
       Firebase.pushTimestamp(fbLogsData, fbPathLogsOpen);
-      // or use PatchData with JSON to be silent?
-      // https://github.com/mobizt/Firebase-ESP8266#patch-data
+
+
       Firebase.setInt(fbPushData, fbPathState + "/on", 1);
       pressCountStartTime = 0;
       pressCount = 0;
     }
   } else {
-    // send notification only once if it's NOT running the detector.
+
     if (pressCountStartTime == 0) {
       sendPressNoti();
     }
@@ -378,7 +404,7 @@ void wifiManConfigModeCallback(WiFiManager *myWiFiManager) {
 }
 
 void setupWifiManager() {
-  // locally.
+
   WiFiManager wifiManager;
   String msg =
       "<p><strong>vkot</strong> is a cool and unique smart system!</p><br>Take "
@@ -408,17 +434,17 @@ void setupWifiManager() {
   WiFiManagerParameter copy_text_html(html.c_str());
   wifiManager.addParameter(&copy_text_html);
 
-  //  wifiManager.setCustomHeadElement(
-  //      "<style>html{filter: invert(100%); -webkit-filter: "
-  //      "invert(100%);}</style>");
 
-  // wifiManager.setAPCallback(wifiManConfigModeCallback);
+
+
+
+
   wifiManager.setConfigPortalTimeout(DEFAULT_WIFI_AP_TIMEOUT);
 
   if (!wifiManager.autoConnect("VKOT-DOORBELL")) {
     Serial.println("Failed to connect to network/AP and hit timeout.");
-    //   Reset and try again, or maybe put it to deep sleep?
-    //   ESP.reset();
+
+
     delay(1000);
     Serial.println("Going on without WiFi :( ");
   }
@@ -450,8 +476,8 @@ void checkRelayOnTimer() {
 
 void sysEnabledBlink() {
   if (systemEnabled) {
-    // TODO: implement led system.
-    // ledController.Blink(100, 100).Repeat(3).DelayAfter(1000);
+
+
   }
 }
 
@@ -466,7 +492,7 @@ void setConfigSysEnabled(bool flag) {
 void checkCommand(int cmdId) {
   if (cmdId == 0) return;
   if (cmdId == 1) {
-    // ping / pong, update to notify client.
+
   } else if (cmdId == 2) {
     if (Firebase.setInt(fbPushData, fbPathNetStats + "/rssi", WiFi.RSSI())) {
       Serial.println("Netstats RSSI updated.");
@@ -484,9 +510,9 @@ void readFirebaseStream() {
   Serial.println("EVENT TYPE: " + fbData.eventType());
   printResult(fbData);
 
-  // this conflicts with the emulated "relay"...
-  // use in production.
-  // ledController.Breathe(140).Repeat(2);
+
+
+
 
   if (fbData.dataType() == "json") {
     FirebaseJsonData jsonObj;
@@ -523,10 +549,10 @@ void readFirebaseStream() {
   } else if (fbData.dataType() == "int") {
     String path = fbData.dataPath();
     if (path == "/on_timeout") {
-      // how much time in milliseconds to maintain on when send on command.
+
       setRelayOnDuration(fbData.intData());
     } else if (path == "/on") {
-      // we expect 0-1
+
       turnRelayRemote(fbData.intData() == 1);
     } else if (path == "/press_count") {
       setPressCountActivation(fbData.intData());
@@ -569,10 +595,10 @@ void setup() {
 
 void onWifiConnectionChange() {
   if (isWifiConnected) {
-    // send login.
+
     setupFirebase();
     sendLogin();
-    // start led status 2
+
     ledPrimary.Breathe(3000).DelayAfter(400).Forever();
   } else {
     ledPrimary.Blink(80, 1000).Forever();
@@ -580,25 +606,25 @@ void onWifiConnectionChange() {
 }
 
 void loopWifi() {
-  // each 500ms check status.
+
   if (ms - wifiLastDebounceTime >= 500) {
     wifiLastDebounceTime = ms;
     int _status = WiFi.status();
     if (_status != lastWifiStatus) {
-      // WiFi status changed.
+
       lastWifiStatus = _status;
       bool _isConnected = _status == WL_CONNECTED;
-      // if (_isConnected != isWifiConnected ) {
+
       isWifiConnected = _isConnected;
       onWifiConnectionChange();
-      // }
+
       Serial.println();
       Serial.print("Wifi status changed to: ");
       Serial.print(_status);
       Serial.println(isWifiConnected ? "WiFi Connected" : "WiFi Disconnected");
     }
-    // Serial.println(WiFi.RSSI());
-    // Serial.println("--------");
+
+
   }
 }
 
@@ -609,7 +635,7 @@ void loopLed() {
     if (ms < primLedPauseUntil) {
       return;
     } else {
-      // reset
+
       if (primLedPauseUntil > 0) primLedPauseUntil = 0;
     }
     ledPrimary.Update();
@@ -627,5 +653,5 @@ void loop() {
   loopFirebase();
   loopLed();
   delay(1);
-  // sequence.Update();
+
 }

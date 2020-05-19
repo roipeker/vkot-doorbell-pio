@@ -2,5 +2,8 @@
     "terminal.integrated.env.osx": {
         "PATH": "/Users/roi/.platformio/penv/bin:/Users/roi/.platformio/penv:/Users/roi/.jenv/shims:/Users/roi/Library/Android/sdk/emulator:/Users/roi/Library/Android/sdk/tools:/usr/local/sbin:/Users/roi/bin:/usr/local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/VMware Fusion.app/Contents/Public:/usr/local/go/bin:/opt/X11/bin:/Library/Apple/usr/bin:/Applications/Wireshark.app/Contents/MacOS:/path/to/depot_tools:/Users/roi/Library/Android/sdk/platform-tools:/Users/roi/Library/Android/sdk/tools:/Users/roi/Library/Android/sdk/tools/bin:/Volumes/mydata/dev/bash/my-env:/Volumes/mydata/dev/sdk/dart/dart-sdk-2.8.1/bin:/Volumes/mydata/dev/sdk/flutters/master/flutter/bin:/Users/roi/.pub-cache/bin:/Users/roi/.jenv/bin:/Users/roi/Library/Android/sdk/emulator:/Users/roi/Library/Android/sdk/tools:/usr/local/sbin:/Users/roi/bin:/usr/local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/VMware Fusion.app/Contents/Public:/usr/local/go/bin:/opt/X11/bin:/Library/Apple/usr/bin:/Applications/Wireshark.app/Contents/MacOS:/path/to/depot_tools:/Users/roi/Library/Android/sdk/platform-tools:/Users/roi/Library/Android/sdk/tools:/Users/roi/Library/Android/sdk/tools/bin:/Volumes/mydata/dev/bash/my-env:/Volumes/mydata/dev/sdk/dart/dart-sdk-2.8.1/bin:/Volumes/mydata/dev/sdk/flutters/master/flutter/bin:/Users/roi/.pub-cache/bin:/Users/roi/.platformio/penv/bin:/Users/roi/go/bin",
         "PLATFORMIO_CALLER": "vscode"
+    },
+    "files.associations": {
+        "algorithm": "cpp"
     }
 }
