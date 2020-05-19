@@ -1,5 +1,8 @@
+// #define ENABLE_DEBUG_PING 2
+
 #include <Arduino.h>
 #include <ESP8266HTTPClient.h>
+#include <ESP8266Ping.h>
 #include <ESP8266WebServer.h>  //Local WebServer used to serve the configuration portal
 #include <ESP8266WiFi.h>
 #include <FirebaseESP8266.h>
@@ -23,13 +26,18 @@
 #define DEFAULT_PRESS_COUNT_TIMEOUT_MS 4000  // in 4 secs, to open door
 #define DEFAULT_WIFI_AP_TIMEOUT \
   30  // Wifi 30 SECONDS to fail on setup(), and do offline
+#define PING_SERVER_INTERVAL_MS 20000  // only when activates
 
-int BUTTON_DEBOUNCE = 50;  // 50 ms
+IPAddress PING_IP(1, 1, 1, 1);  // The remote ip to ping
 
+bool pingServerEnabled = false;  // only when activates WIFI
+int BUTTON_DEBOUNCE = 50;        // 50 ms
 bool isRelayOn = false;
 bool isButtonPressed = false;
 bool isWifiConnected = false;
-int lastWifiStatus = -1;  // check for WL_CONNECTED
+int hasWiFiConnection = -1;      // 0 - 1
+int hasInternetConnection = -1;  // 0 - 1
+int lastWifiStatus = -1;         // check for WL_CONNECTED
 
 // log connection info and network status (noise).
 volatile long buttonLastDebounceTime = 0;
@@ -51,6 +59,7 @@ String fbPathLogsOpen = "devices/" + devId + "/logs/open";  // activate system.
 unsigned long ms;
 unsigned long relayStartTime = 0;
 unsigned long factoryResetStartTime = 0;  // hits FACTORY_RESET_PRESS_TIMEOUT_MS
+unsigned long lastPingServerStartTime = 0;
 
 int relayTimeoutDelay = DEFAULT_RELAY_DURATION_MS;
 int pressCountActivateRelay = DEFAULT_PRESS_COUNT_ACTIVATE;
@@ -246,6 +255,11 @@ void execFactoryReset() {
   ESP.restart();
 }
 
+void stopFactoryResetTimeout() {
+  factoryResetStartTime = 0;
+  resetBlinkState = -1;
+}
+
 void startFactoryResetTimeout(bool flag) {
   factoryResetStartTime = flag ? ms : 0;
   resetBlinkState = -1;
@@ -295,8 +309,8 @@ void checkFactoryResetTimeout() {
 
 // manual delay of primary LED pattern (wifi on/off)
 // todo: make it consistent in the system to avoid failures.
-double primLedPauseUntil = 0;
-void pausePrimaryLed(int nextTime) { primLedPauseUntil = ms + nextTime; }
+// double primLedPauseUntil = 0;
+// void pausePrimaryLed(int nextTime) { primLedPauseUntil = ms + nextTime; }
 
 void checkPressCountTimeout() {
   // only if system enabled
@@ -312,13 +326,23 @@ void checkPressCountTimeout() {
 
 void onButtonPressed(bool flag) {
   Serial.println(flag ? "Button pressed" : "Button released");
-  startFactoryResetTimeout(flag);
-  // turnRelay(flag);
+
+  // factory reset, only if relay is off.
+  if( !isRelayOn ){
+    startFactoryResetTimeout(flag);
+  }
+
   if (!flag) {
     // system is not enabled.
     if (!systemEnabled) {
       return;
     }
+
+    /// if relay is currently ON, skip this.
+    if (isRelayOn) {
+      return;
+    }
+
     if (pressCountStartTime == 0) {
       pressCountStartTime = ms;
       pressCount = 0;
@@ -411,7 +435,12 @@ void setupWifiManager() {
   //  wifiManager.setCustomHeadElement(
   //      "<style>html{filter: invert(100%); -webkit-filter: "
   //      "invert(100%);}</style>");
+  // WiFi Disconnected
+  // Ping DNS result=FALSE, avg time=0
 
+  // Internet status changed to: 0
+
+  // Wifi status changed to: 6
   // wifiManager.setAPCallback(wifiManConfigModeCallback);
   wifiManager.setConfigPortalTimeout(DEFAULT_WIFI_AP_TIMEOUT);
 
@@ -433,7 +462,7 @@ void setupWifi() {
 void setupFirebase() {
   Serial.println("setting up firebase");
   Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
-  Firebase.reconnectWiFi(true);
+  // Firebase.reconnectWiFi(true);
   if (!Firebase.beginStream(fbData, fbPathState)) {
     Serial.println("Could not begin stream, REASON: " + fbData.errorReason());
     Serial.println();
@@ -541,7 +570,7 @@ void readFirebaseStream() {
 }
 
 void loopFirebase() {
-  if (!isWifiConnected) {
+  if (!hasInternetConnection) {
     return;
   }
   if (!Firebase.readStream(fbData)) {
@@ -561,21 +590,64 @@ void setup() {
   setupPins();
   ledSecondary.On().Update();
   setupWifi();
-  setupFirebase();
-  sendLogin();
   ledSecondary.Off().Update();
+  // moved this into internet connectivity.
+  // setupFirebase();
+  // sendLogin();
   Serial.println("setup() finished.");
 }
 
-void onWifiConnectionChange() {
-  if (isWifiConnected) {
+void checkPingServer() {
+  int _hasInternet = Ping.ping(PING_IP, 1) ? 1 : 0;
+  Serial.println();
+  Serial.print("Ping DNS result=");
+  Serial.print(_hasInternet ? "TRUE" : "FALSE");
+  Serial.print(", avg time=");
+  Serial.print(Ping.averageTime());
+  Serial.println();
+  if (hasInternetConnection != _hasInternet) {
+    hasInternetConnection = _hasInternet;
+    onInternetStatusChange();
+  }
+}
+
+void onInternetStatusChange() {
+  Serial.println();
+  Serial.print("Internet status changed to: ");
+  Serial.print(hasInternetConnection);
+  Serial.println();
+
+  // status not defined yet.
+  if (hasInternetConnection == -1) return;
+
+  if (hasInternetConnection == 1) {
     // send login.
     setupFirebase();
     sendLogin();
-    // start led status 2
     ledPrimary.Breathe(3000).DelayAfter(400).Forever();
   } else {
     ledPrimary.Blink(80, 1000).Forever();
+  }
+}
+
+void onWifiConnectionChange() {
+  pingServerEnabled = isWifiConnected;
+  Serial.println(isWifiConnected ? "WiFi Connected" : "WiFi Disconnected");
+  if (isWifiConnected) {
+    // wait 500ms to make the next request.
+    // lastPingServerStartTime = ms - 500;
+    checkPingServer();
+  } else {
+    checkPingServer();
+  }
+}
+
+void loopPingServer() {
+  // only ping where's wifi connection.
+  if (!pingServerEnabled) return;
+  if (ms - lastPingServerStartTime >= PING_SERVER_INTERVAL_MS) {
+    checkPingServer();
+    lastPingServerStartTime = ms;
   }
 }
 
@@ -587,15 +659,15 @@ void loopWifi() {
     if (_status != lastWifiStatus) {
       // WiFi status changed.
       lastWifiStatus = _status;
-      bool _isConnected = _status == WL_CONNECTED;
-      // if (_isConnected != isWifiConnected ) {
-      isWifiConnected = _isConnected;
-      onWifiConnectionChange();
-      // }
+      int _isConnected = _status == WL_CONNECTED ? 1 : 0;
+      if (hasWiFiConnection != _isConnected) {
+        hasWiFiConnection = _isConnected;
+        isWifiConnected = hasWiFiConnection == 1;
+        onWifiConnectionChange();
+      }
       Serial.println();
       Serial.print("Wifi status changed to: ");
       Serial.print(_status);
-      Serial.println(isWifiConnected ? "WiFi Connected" : "WiFi Disconnected");
     }
     // Serial.println(WiFi.RSSI());
     // Serial.println("--------");
@@ -606,12 +678,13 @@ void loopLed() {
   if (ledSecondary.IsRunning()) {
     ledSecondary.Update();
   } else {
-    if (ms < primLedPauseUntil) {
-      return;
-    } else {
-      // reset
-      if (primLedPauseUntil > 0) primLedPauseUntil = 0;
-    }
+    // todo : related to delay on primaryLed. Not implemented.
+    // if (ms < primLedPauseUntil) {
+    //   return;
+    // } else {
+    // reset
+    // if (primLedPauseUntil > 0) primLedPauseUntil = 0;
+    // }
     ledPrimary.Update();
   }
 }
@@ -620,6 +693,7 @@ void loop() {
   ms = millis();
   if (ms < 0) ms = 0;
   loopWifi();
+  loopPingServer();
   checkFactoryResetTimeout();
   checkRelayOnTimer();
   readButtonState();
@@ -627,5 +701,4 @@ void loop() {
   loopFirebase();
   loopLed();
   delay(1);
-  // sequence.Update();
 }
