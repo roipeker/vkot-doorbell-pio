@@ -1,25 +1,27 @@
-// #define ENABLE_DEBUG_PING 2
+// constants.h defines the custom vars, create that file with your configuration
+// #define FIREBASE_HOST "https://NAMEHERE.firebaseio.com"
+// #define FIREBASE_AUTH "000000000000000000000000"
+// #define PIN_RELAY 0
+// #define PIN_STATUS_LED 1
+// #define PIN_BUTTON 2
+// #define LED_INV false
+// #define USE_OTA false
 
 #include <Arduino.h>
 #include <ESP8266HTTPClient.h>
-#include "ESP8266Ping.h"
 #include <ESP8266WebServer.h>  //Local WebServer used to serve the configuration portal
 #include <ESP8266WiFi.h>
 #include <FirebaseESP8266.h>
 #include <WiFiManager.h>  //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
 #include <jled.h>
 
+#include "ESP8266Ping.h"
 #include "constants.h"
 
-// constants.h defines the custom vars
-// #define FIREBASE_HOST "https://NAMEHERE.firebaseio.com"
-// #define FIREBASE_AUTH "000000000000000000000000"
-// #define PIN_RELAY 0
-// #define PIN_STATUS_LED 1
-// #define PIN_BUTTON 2
-// #define LED_INV 0
+#ifdef USE_OTA
+#include "UtilsOTA.h"
+#endif
 
-#define IP_API_URL "http://api.ipify.org/"
 #define DEFAULT_RELAY_DURATION_MS 4000       // 4 sec door opens.
 #define FACTORY_RESET_PRESS_TIMEOUT_MS 8000  // 8 seconds pressed.
 #define DEFAULT_PRESS_COUNT_ACTIVATE 5       // 5 rings, can't be < 2.
@@ -31,17 +33,17 @@
 IPAddress PING_IP(1, 1, 1, 1);  // The remote ip to ping
 
 bool pingServerEnabled = false;  // only when activates WIFI
-int BUTTON_DEBOUNCE = 50;        // 50 ms
+uint16_t BUTTON_DEBOUNCE = 50;   // 50 ms
 bool isRelayOn = false;
 bool isButtonPressed = false;
 bool isWifiConnected = false;
-int hasWiFiConnection = -1;      // 0 - 1
-int hasInternetConnection = -1;  // 0 - 1
-int lastWifiStatus = -1;         // check for WL_CONNECTED
+uint8_t hasWiFiConnection = -1;      // 0 - 1
+uint8_t hasInternetConnection = -1;  // 0 - 1
+uint8_t lastWifiStatus = -1;         // check for WL_CONNECTED
 
 // log connection info and network status (noise).
-volatile long buttonLastDebounceTime = 0;
-volatile long wifiLastDebounceTime = 0;
+unsigned long buttonLastDebounceTime = 0;
+unsigned long wifiLastDebounceTime = 0;
 
 // firebase realtime database.
 FirebaseData fbData;
@@ -60,20 +62,17 @@ unsigned long ms;
 unsigned long relayStartTime = 0;
 unsigned long factoryResetStartTime = 0;  // hits FACTORY_RESET_PRESS_TIMEOUT_MS
 unsigned long lastPingServerStartTime = 0;
+unsigned long pressCountStartTime = 0;  // millis when first press.
 
-int relayTimeoutDelay = DEFAULT_RELAY_DURATION_MS;
-int pressCountActivateRelay = DEFAULT_PRESS_COUNT_ACTIVATE;
-int pressCountTimeout = DEFAULT_PRESS_COUNT_TIMEOUT_MS;
+uint8_t pressCountActivateRelay = DEFAULT_PRESS_COUNT_ACTIVATE;
+uint16_t relayTimeoutDelay = DEFAULT_RELAY_DURATION_MS;
+uint16_t pressCountTimeout = DEFAULT_PRESS_COUNT_TIMEOUT_MS;
 
 // global flag to change status of the push system activation.
 bool systemEnabled = true;
 
-int resetBlinkState = -1;  // factory reset LED bomb blink state.
-
-int pressCount = 0;                     // this is the actual counter.
-unsigned long pressCountStartTime = 0;  // millis when first press.
-
-HTTPClient http;
+uint8_t resetBlinkState = -1;  // factory reset LED bomb blink state.
+uint8_t pressCount = 0;        // this is the actual counter.
 
 // todo: improve led states.
 JLed ledPrimary = JLed(PIN_STATUS_LED);
@@ -152,15 +151,15 @@ void printResult(FirebaseData &data) {
   }
 }
 
-void setRelayOnDuration(int duration) {
+void setRelayOnDuration(uint16_t duration) {
   relayTimeoutDelay = duration == 0 ? DEFAULT_RELAY_DURATION_MS : duration;
 }
 
-void setPressCountActivation(int count) {
+void setPressCountActivation(uint8_t count) {
   pressCountActivateRelay = count < 2 ? DEFAULT_PRESS_COUNT_ACTIVATE : count;
 }
 
-void setPressCountTimeout(int duration) {
+void setPressCountTimeout(uint16_t duration) {
   pressCountTimeout =
       duration == 0 ? DEFAULT_PRESS_COUNT_TIMEOUT_MS : pressCountTimeout;
 }
@@ -168,35 +167,35 @@ void setPressCountTimeout(int duration) {
 void sendLogin() {
   Firebase.pushTimestamp(fbLogsData, fbPathLogsLogin);
   // update IP once.
-  http.begin(IP_API_URL);
+  WiFiClient client;
+  HTTPClient http;
+
+  http.begin(client, "http://api.ipify.org/");
   http.GET();
   String ipPayload = http.getString();
   http.end();
   Serial.print("IP is: ");
   Serial.println(ipPayload);
-
   String gatewayIP = WiFi.gatewayIP().toString();
   String localIP = WiFi.localIP().toString();
   int channel = WiFi.channel();
   String ssid = WiFi.SSID();
   String bssid = WiFi.BSSIDstr();
   int rssi = WiFi.RSSI();
-
-  Serial.println();
-  Serial.print("gateway ip ");
-  Serial.println(gatewayIP);
-  Serial.print("localIP ");
-  Serial.println(localIP);
-  Serial.print("channel ");
-  Serial.println(channel);
-  Serial.print("ssid ");
-  Serial.println(ssid);
-  Serial.print("bssid ");
-  Serial.println(bssid);
-  Serial.print("RSSI ");
-  Serial.println(rssi);
-  Serial.println();
-
+  // Serial.println();
+  // Serial.print("gateway ip ");
+  // Serial.println(gatewayIP);
+  // Serial.print("localIP ");
+  // Serial.println(localIP);
+  // Serial.print("channel ");
+  // Serial.println(channel);
+  // Serial.print("ssid ");
+  // Serial.println(ssid);
+  // Serial.print("bssid ");
+  // Serial.println(bssid);
+  // Serial.print("RSSI ");
+  // Serial.println(rssi);
+  // Serial.println();
   FirebaseJson json1;
   json1.set("public_ip", ipPayload);
   json1.set("gateway_ip", gatewayIP);
@@ -317,10 +316,24 @@ void checkPressCountTimeout() {
   if (!systemEnabled || pressCountStartTime == 0) return;
   bool isValidTime = ms < pressCountStartTime + pressCountTimeout;
   if (!isValidTime) {
+    if (pressCount == pressCountActivateRelay) {
+      Serial.println("Press valid!!!!");
+      Serial.println();
+      Serial.print("Press count hit. Activate relay for ");
+      Serial.print(relayTimeoutDelay);
+      Serial.print("ms.");
+      Serial.println();
+      turnRelayRemote(true);
+      Firebase.pushTimestamp(fbLogsData, fbPathLogsOpen);
+      // or use PatchData with JSON to be silent?
+      // https://github.com/mobizt/Firebase-ESP8266#patch-data
+      Firebase.setInt(fbPushData, fbPathState + "/on", 1);
+    } else {
+      Serial.println("Press count timed out. Reset counter.");
+      ledSecondary.Blink(120, 120).Repeat(4);
+    }
     pressCountStartTime = 0;
     pressCount = 0;
-    Serial.println("Press count relay timed out. Reset counter.");
-    ledSecondary.Blink(120, 120).Repeat(4);
   }
 }
 
@@ -328,7 +341,7 @@ void onButtonPressed(bool flag) {
   Serial.println(flag ? "Button pressed" : "Button released");
 
   // factory reset, only if relay is off.
-  if( !isRelayOn ){
+  if (!isRelayOn) {
     startFactoryResetTimeout(flag);
   }
 
@@ -347,20 +360,15 @@ void onButtonPressed(bool flag) {
       pressCountStartTime = ms;
       pressCount = 0;
     }
-    if (++pressCount >= pressCountActivateRelay) {
+    ++pressCount;
+    if (pressCount > pressCountActivateRelay) {
       Serial.println();
-      Serial.print("Press count hit. Activate relay for ");
-      Serial.print(relayTimeoutDelay);
-      Serial.print("ms.");
-      Serial.println();
-      turnRelayRemote(true);
-      Firebase.pushTimestamp(fbLogsData, fbPathLogsOpen);
-      // or use PatchData with JSON to be silent?
-      // https://github.com/mobizt/Firebase-ESP8266#patch-data
-      Firebase.setInt(fbPushData, fbPathState + "/on", 1);
-      pressCountStartTime = 0;
-      pressCount = 0;
+      Serial.print("Press count overflow: ");
+      Serial.print(pressCount);
+      Serial.print("/");
+      Serial.println(pressCountActivateRelay);
     }
+
   } else {
     // send notification only once if it's NOT running the detector.
     if (pressCountStartTime == 0) {
@@ -395,11 +403,11 @@ void setupPins() {
   }
 }
 
-void wifiManConfigModeCallback(WiFiManager *myWiFiManager) {
-  Serial.println("Entered config mode");
-  Serial.println(WiFi.softAPIP());
-  Serial.println(myWiFiManager->getConfigPortalSSID());
-}
+// void wifiManConfigModeCallback(WiFiManager *myWiFiManager) {
+//   Serial.println("Entered config mode");
+//   Serial.println(WiFi.softAPIP());
+//   Serial.println(myWiFiManager->getConfigPortalSSID());
+// }
 
 void setupWifiManager() {
   // locally.
@@ -435,12 +443,6 @@ void setupWifiManager() {
   //  wifiManager.setCustomHeadElement(
   //      "<style>html{filter: invert(100%); -webkit-filter: "
   //      "invert(100%);}</style>");
-  // WiFi Disconnected
-  // Ping DNS result=FALSE, avg time=0
-
-  // Internet status changed to: 0
-
-  // Wifi status changed to: 6
   // wifiManager.setAPCallback(wifiManConfigModeCallback);
   wifiManager.setConfigPortalTimeout(DEFAULT_WIFI_AP_TIMEOUT);
 
@@ -511,11 +513,8 @@ void readFirebaseStream() {
   Serial.println("EVENT PATH: " + fbData.dataPath());
   Serial.println("DATA TYPE: " + fbData.dataType());
   Serial.println("EVENT TYPE: " + fbData.eventType());
-  printResult(fbData);
 
-  // this conflicts with the emulated "relay"...
-  // use in production.
-  // ledController.Breathe(140).Repeat(2);
+  printResult(fbData);
 
   if (fbData.dataType() == "json") {
     FirebaseJsonData jsonObj;
@@ -587,6 +586,14 @@ void loopFirebase() {
 void setup() {
   Serial.begin(115200, SERIAL_8N1, SERIAL_TX_ONLY);
   delay(100);
+
+#ifdef USE_OTA
+  Serial.println("USING OTA.");
+  setupOTA();
+#else
+  Serial.println("NOT using OTA.");
+#endif
+
   setupPins();
   ledSecondary.On().Update();
   setupWifi();
@@ -665,9 +672,11 @@ void loopWifi() {
         isWifiConnected = hasWiFiConnection == 1;
         onWifiConnectionChange();
       }
+#ifdef APP_DEBUG
       Serial.println();
       Serial.print("Wifi status changed to: ");
       Serial.print(_status);
+#endif
     }
     // Serial.println(WiFi.RSSI());
     // Serial.println("--------");
@@ -691,6 +700,7 @@ void loopLed() {
 
 void loop() {
   ms = millis();
+  // Serial.print(".");
   if (ms < 0) ms = 0;
   loopWifi();
   loopPingServer();
@@ -700,5 +710,8 @@ void loop() {
   checkPressCountTimeout();
   loopFirebase();
   loopLed();
+#ifdef USE_OTA
+  loopOTA();
+#endif
   delay(1);
 }
