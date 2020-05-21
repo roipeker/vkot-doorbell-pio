@@ -23,12 +23,12 @@
 #endif
 
 #define DEFAULT_RELAY_DURATION_MS 4000       // 4 sec door opens.
-#define FACTORY_RESET_PRESS_TIMEOUT_MS 8000  // 8 seconds pressed.
+#define FACTORY_RESET_PRESS_TIMEOUT_MS 10000  // 8 seconds pressed.
 #define DEFAULT_PRESS_COUNT_ACTIVATE 5       // 5 rings, can't be < 2.
 #define DEFAULT_PRESS_COUNT_TIMEOUT_MS 4000  // in 4 secs, to open door
 #define DEFAULT_WIFI_AP_TIMEOUT \
-  30  // Wifi 30 SECONDS to fail on setup(), and do offline
-#define PING_SERVER_INTERVAL_MS 20000  // only when activates
+  60  // Wifi 30 SECONDS to fail on setup(), and do offline
+#define PING_SERVER_INTERVAL_MS 60000  // only when activates
 
 IPAddress PING_IP(1, 1, 1, 1);  // The remote ip to ping
 
