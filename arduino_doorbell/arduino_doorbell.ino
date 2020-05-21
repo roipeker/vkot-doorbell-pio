@@ -584,7 +584,7 @@ void loopFirebase() {
 }
 
 void setup() {
-  Serial.begin(115200, SERIAL_8N1, SERIAL_TX_ONLY);
+  Serial.begin(115200, SERIAL_8N1, SERIAL_TX_ONLY); //No RX
   delay(100);
 
 #ifdef USE_OTA
