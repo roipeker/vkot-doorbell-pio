@@ -1,11 +1,8 @@
 // constants.h defines the custom vars, create that file with your configuration
+
+// database.h defines firebase credentials
 // #define FIREBASE_HOST "https://NAMEHERE.firebaseio.com"
 // #define FIREBASE_AUTH "000000000000000000000000"
-// #define PIN_RELAY 0
-// #define PIN_STATUS_LED 1
-// #define PIN_BUTTON 2
-// #define LED_INV false
-// #define USE_OTA false
 
 #include <Arduino.h>
 #include <ESP8266HTTPClient.h>
@@ -16,30 +13,31 @@
 #include <jled.h>
 
 #include "ESP8266Ping.h"
+#include "database.h"
 #include "constants.h"
 
 #ifdef USE_OTA
 #include "UtilsOTA.h"
 #endif
 
-#define DEFAULT_RELAY_DURATION_MS 4000       // 4 sec door opens.
-#define FACTORY_RESET_PRESS_TIMEOUT_MS 10000  // 8 seconds pressed.
-#define DEFAULT_PRESS_COUNT_ACTIVATE 5       // 5 rings, can't be < 2.
-#define DEFAULT_PRESS_COUNT_TIMEOUT_MS 4000  // in 4 secs, to open door
-#define DEFAULT_WIFI_AP_TIMEOUT \
-  60  // Wifi 30 SECONDS to fail on setup(), and do offline
-#define PING_SERVER_INTERVAL_MS 60000  // only when activates
+#define DEFAULT_RELAY_DURATION_MS 4000          // 4 sec door opens.
+#define FACTORY_RESET_PRESS_TIMEOUT_MS 10000    // 8 seconds pressed.
+#define DEFAULT_PRESS_COUNT_ACTIVATE 5          // 5 rings, can't be < 2.
+#define DEFAULT_PRESS_COUNT_TIMEOUT_MS 4000     // in 4 secs, to open door
+#define DEFAULT_WIFI_AP_TIMEOUT 40              // Wifi 30 SECONDS to fail on setup(),
+                                                // and do offline
+#define PING_SERVER_INTERVAL_MS 60000           // only when activates
 
-IPAddress PING_IP(1, 1, 1, 1);  // The remote ip to ping
+IPAddress PING_IP(1, 1, 1, 1);                  // The remote ip to ping
 
-bool pingServerEnabled = false;  // only when activates WIFI
-uint16_t BUTTON_DEBOUNCE = 50;   // 50 ms
+bool pingServerEnabled = false;                 // only when activates WIFI
+uint16_t BUTTON_DEBOUNCE = 50;                  // 50 ms
 bool isRelayOn = false;
 bool isButtonPressed = false;
 bool isWifiConnected = false;
-uint8_t hasWiFiConnection = -1;      // 0 - 1
-uint8_t hasInternetConnection = -1;  // 0 - 1
-uint8_t lastWifiStatus = -1;         // check for WL_CONNECTED
+uint8_t hasWiFiConnection = -1;                 // 0 - 1
+uint8_t hasInternetConnection = -1;             // 0 - 1
+uint8_t lastWifiStatus = -1;                    // check for WL_CONNECTED
 
 // log connection info and network status (noise).
 unsigned long buttonLastDebounceTime = 0;
@@ -196,7 +194,9 @@ void sendLogin() {
   // Serial.print("RSSI ");
   // Serial.println(rssi);
   // Serial.println();
+  
   FirebaseJson json1;
+
   json1.set("public_ip", ipPayload);
   json1.set("gateway_ip", gatewayIP);
   json1.set("local_ip", localIP);
@@ -204,14 +204,15 @@ void sendLogin() {
   json1.set("ssid", ssid);
   json1.set("bssid", bssid);
   json1.set("rssi", rssi);
-
   if (Firebase.set(fbPushData, fbPathNetStats, json1)) {
     Serial.println("network stats updated.");
   }
 }
 
 // logic
-void sendPressNoti() { Firebase.pushTimestamp(fbLogsData, fbPathLogsPush); }
+void sendPressNoti() { 
+  Firebase.pushTimestamp(fbLogsData, fbPathLogsPush);
+}
 
 void turnRelay(bool flag) {
   if (isRelayOn == flag) return;
@@ -222,7 +223,6 @@ void turnRelay(bool flag) {
     // make led stay on for this much.
     ledSecondary.Blink(relayTimeoutDelay, 10).Repeat(1);
   }
-
   if (PIN_RELAY > -1) {
     digitalWrite(PIN_RELAY, flag ? LOW : HIGH);
   }
@@ -403,49 +403,51 @@ void setupPins() {
   }
 }
 
-// void wifiManConfigModeCallback(WiFiManager *myWiFiManager) {
-//   Serial.println("Entered config mode");
-//   Serial.println(WiFi.softAPIP());
-//   Serial.println(myWiFiManager->getConfigPortalSSID());
-// }
+void wifiManConfigModeCallback(WiFiManager *myWiFiManager) {
+  Serial.println("Entered config mode");
+  Serial.println(WiFi.softAPIP());
+  // stop firebase?
+  // Serial.println(myWiFiManager->getConfigPortalSSID());
+}
 
 void setupWifiManager() {
   // locally.
   WiFiManager wifiManager;
-  String msg =
-      "<p><strong>vkot</strong> is a cool and unique smart system!</p><br>Take "
-      "note of your unique smartbell ID and link it to your account:";
-  String html =
-      "<input type='text' "
-      "onmousedown='this.style.outline=\"none\";this.style.opacity=\"0.5\"' "
-      "onclick='this.style.outline=\"none\";this.style.opacity=\"1.0\";this."
-      "select();this.setSelectionRange(0, "
-      "99999);document.execCommand(\"copy\");var "
-      "msg=document.getElementById(\"copy_msg\");msg.style.visibility="
-      "\"visible\";this.setSelectionRange(0, 0);setTimeout(function "
-      "(){msg.style.visibility=\"hidden\";},1000);' style='border: 1px solid "
-      "black;border-radius: "
-      "12px;padding:8px;text-align:center;font-size:28px;font-weight:bold;' "
-      "value='" +
-      devId +
-      "' id='myid' readonly/><p id='copy_msg' "
-      "style='visibility:hidden;width:120px;background-color: "
-      "black;color:white;border-radius: "
-      "6px;text-align:center;padding:10px;font-size: 12px;'>device id "
-      "copied</p>";
-
-  WiFiManagerParameter custom_text(msg.c_str());
-  wifiManager.addParameter(&custom_text);
-
-  WiFiManagerParameter copy_text_html(html.c_str());
-  wifiManager.addParameter(&copy_text_html);
-
-  //  wifiManager.setCustomHeadElement(
-  //      "<style>html{filter: invert(100%); -webkit-filter: "
-  //      "invert(100%);}</style>");
-  // wifiManager.setAPCallback(wifiManConfigModeCallback);
-  wifiManager.setConfigPortalTimeout(DEFAULT_WIFI_AP_TIMEOUT);
-
+  
+  // String msg =
+  //     "<p><strong>vkot</strong> is a cool and unique smart system!</p><br>Take "
+  //     "note of your unique smartbell ID and link it to your account:";
+  // String html =
+  //     "<input type='text' "
+  //     "onmousedown='this.style.outline=\"none\";this.style.opacity=\"0.5\"' "
+  //     "onclick='this.style.outline=\"none\";this.style.opacity=\"1.0\";this."
+  //     "select();this.setSelectionRange(0, "
+  //     "99999);document.execCommand(\"copy\");var "
+  //     "msg=document.getElementById(\"copy_msg\");msg.style.visibility="
+  //     "\"visible\";this.setSelectionRange(0, 0);setTimeout(function "
+  //     "(){msg.style.visibility=\"hidden\";},1000);' style='border: 1px solid "
+  //     "black;border-radius: "
+  //     "12px;padding:8px;text-align:center;font-size:28px;font-weight:bold;' "
+  //     "value='" +
+  //     devId +
+  //     "' id='myid' readonly/><p id='copy_msg' "
+  //     "style='visibility:hidden;width:120px;background-color: "
+  //     "black;color:white;border-radius: "
+  //     "6px;text-align:center;padding:10px;font-size: 12px;'>device id "
+  //     "copied</p>";
+  // WiFiManagerParameter custom_text(msg.c_str());
+  // wifiManager.addParameter(&custom_text);
+  // WiFiManagerParameter copy_text_html(html.c_str());
+  // wifiManager.addParameter(&copy_text_html);
+//  wifiManager.setAPStaticIPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
+//  wifiManager.setScanDispPerc(true);
+  // wifiManager.setRemoveDuplicateAPs(false);
+  // wifiManager.setWebPortalClientCheck(true);
+  wifiManager.setConfigPortalBlocking(true);
+  Serial.println("Wifi is saved:");
+  Serial.print(wifiManager.getWiFiIsSaved());
+  // wifiManager.setConfigPortalTimeout(60*60*2);
+//  wifiManager.setAPCallback(wifiManConfigModeCallback);
   if (!wifiManager.autoConnect("VKOT-DOORBELL")) {
     Serial.println("Failed to connect to network/AP and hit timeout.");
     //   Reset and try again, or maybe put it to deep sleep?
@@ -640,13 +642,18 @@ void onInternetStatusChange() {
 void onWifiConnectionChange() {
   pingServerEnabled = isWifiConnected;
   Serial.println(isWifiConnected ? "WiFi Connected" : "WiFi Disconnected");
+  // we have to ping server to know if we have internet.
   if (isWifiConnected) {
-    // wait 500ms to make the next request.
-    // lastPingServerStartTime = ms - 500;
-    checkPingServer();
-  } else {
+    lastPingServerStartTime = ms;
     checkPingServer();
   }
+  // if (isWifiConnected) {
+  //   // wait 500ms to make the next request.
+  //   // lastPingServerStartTime = ms - 500;
+  //   checkPingServer();
+  // } else {
+  //   checkPingServer();
+  // }
 }
 
 void loopPingServer() {
@@ -708,7 +715,9 @@ void loop() {
   checkRelayOnTimer();
   readButtonState();
   checkPressCountTimeout();
-  loopFirebase();
+  if( isWifiConnected ){
+    loopFirebase();
+  }
   loopLed();
 #ifdef USE_OTA
   loopOTA();
