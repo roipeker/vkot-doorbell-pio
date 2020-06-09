@@ -163,6 +163,7 @@ void setPressCountTimeout(uint16_t duration) {
 }
 
 void sendLogin() {
+  // default to 0 when it connects.
   Firebase.pushTimestamp(fbLogsData, fbPathLogsLogin);
   // update IP once.
   WiFiClient client;
@@ -207,6 +208,7 @@ void sendLogin() {
   if (Firebase.set(fbPushData, fbPathNetStats, json1)) {
     Serial.println("network stats updated.");
   }
+  Firebase.setInt(fbPushData, fbPathState + "/on", 0);
 }
 
 // logic
@@ -595,7 +597,6 @@ void setup() {
 #else
   Serial.println("NOT using OTA.");
 #endif
-
   setupPins();
   ledSecondary.On().Update();
   setupWifi();
@@ -644,6 +645,7 @@ void onWifiConnectionChange() {
   Serial.println(isWifiConnected ? "WiFi Connected" : "WiFi Disconnected");
   // we have to ping server to know if we have internet.
   if (isWifiConnected) {
+    delay(500);
     lastPingServerStartTime = ms;
     checkPingServer();
   }
@@ -671,6 +673,11 @@ void loopWifi() {
     wifiLastDebounceTime = ms;
     int _status = WiFi.status();
     if (_status != lastWifiStatus) {
+      #ifdef APP_DEBUG
+            Serial.println();
+            Serial.print("Wifi status changed to: ");
+            Serial.print(_status);
+      #endif
       // WiFi status changed.
       lastWifiStatus = _status;
       int _isConnected = _status == WL_CONNECTED ? 1 : 0;
@@ -679,11 +686,7 @@ void loopWifi() {
         isWifiConnected = hasWiFiConnection == 1;
         onWifiConnectionChange();
       }
-#ifdef APP_DEBUG
-      Serial.println();
-      Serial.print("Wifi status changed to: ");
-      Serial.print(_status);
-#endif
+
     }
     // Serial.println(WiFi.RSSI());
     // Serial.println("--------");
