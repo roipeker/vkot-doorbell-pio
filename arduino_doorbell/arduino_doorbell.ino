@@ -13,31 +13,32 @@
 #include <jled.h>
 
 #include "ESP8266Ping.h"
-#include "database.h"
 #include "constants.h"
+#include "database.h"
 
 #ifdef USE_OTA
 #include "UtilsOTA.h"
 #endif
 
-#define DEFAULT_RELAY_DURATION_MS 4000          // 4 sec door opens.
-#define FACTORY_RESET_PRESS_TIMEOUT_MS 10000    // 8 seconds pressed.
-#define DEFAULT_PRESS_COUNT_ACTIVATE 5          // 5 rings, can't be < 2.
-#define DEFAULT_PRESS_COUNT_TIMEOUT_MS 4000     // in 4 secs, to open door
-#define DEFAULT_WIFI_AP_TIMEOUT 40              // Wifi 30 SECONDS to fail on setup(),
-                                                // and do offline
-#define PING_SERVER_INTERVAL_MS 60000           // only when activates
+#define DEFAULT_RELAY_DURATION_MS 4000        // 4 sec door opens.
+#define FACTORY_RESET_PRESS_TIMEOUT_MS 10000  // 8 seconds pressed.
+#define DEFAULT_PRESS_COUNT_ACTIVATE 5        // 5 rings, can't be < 2.
+#define DEFAULT_PRESS_COUNT_TIMEOUT_MS 4000   // in 4 secs, to open door
+#define DEFAULT_WIFI_AP_TIMEOUT \
+  40                                   // Wifi 30 SECONDS to fail on setup(),
+                                       // and do offline
+#define PING_SERVER_INTERVAL_MS 60000  // only when activates
 
-IPAddress PING_IP(1, 1, 1, 1);                  // The remote ip to ping
+IPAddress PING_IP(1, 1, 1, 1);  // The remote ip to ping
 
-bool pingServerEnabled = false;                 // only when activates WIFI
-uint16_t BUTTON_DEBOUNCE = 50;                  // 50 ms
+bool pingServerEnabled = false;  // only when activates WIFI
+uint16_t BUTTON_DEBOUNCE = 50;   // 50 ms
 bool isRelayOn = false;
 bool isButtonPressed = false;
 bool isWifiConnected = false;
-uint8_t hasWiFiConnection = -1;                 // 0 - 1
-uint8_t hasInternetConnection = -1;             // 0 - 1
-uint8_t lastWifiStatus = -1;                    // check for WL_CONNECTED
+uint8_t hasWiFiConnection = -1;      // 0 - 1
+uint8_t hasInternetConnection = -1;  // 0 - 1
+uint8_t lastWifiStatus = -1;         // check for WL_CONNECTED
 
 // log connection info and network status (noise).
 unsigned long buttonLastDebounceTime = 0;
@@ -69,8 +70,10 @@ uint16_t pressCountTimeout = DEFAULT_PRESS_COUNT_TIMEOUT_MS;
 // global flag to change status of the push system activation.
 bool systemEnabled = true;
 
-uint8_t resetBlinkState = -1;  // factory reset LED bomb blink state.
-uint8_t pressCount = 0;        // this is the actual counter.
+uint8_t resetBlinkState = -1;      // factory reset LED bomb blink state.
+uint8_t pressCount = 0;            // this is the actual counter.
+uint8_t activateOnPressCount = 0;  // activates on press count
+                                   // instead of waiting for timeout.
 
 // todo: improve led states.
 JLed ledPrimary = JLed(PIN_STATUS_LED);
@@ -151,11 +154,15 @@ void printResult(FirebaseData &data) {
 
 void setRelayOnDuration(uint16_t duration) {
   relayTimeoutDelay = duration == 0 ? DEFAULT_RELAY_DURATION_MS : duration;
+  Serial.println("Relay on duration");
+  Serial.print(relayTimeoutDelay);
 }
 
 void setPressCountActivation(uint8_t count) {
   pressCountActivateRelay = count < 2 ? DEFAULT_PRESS_COUNT_ACTIVATE : count;
 }
+
+void setActivatePressCountOnHit(uint8_t flag) { activateOnPressCount = flag; }
 
 void setPressCountTimeout(uint16_t duration) {
   pressCountTimeout =
@@ -195,7 +202,7 @@ void sendLogin() {
   // Serial.print("RSSI ");
   // Serial.println(rssi);
   // Serial.println();
-  
+
   FirebaseJson json1;
 
   json1.set("public_ip", ipPayload);
@@ -212,9 +219,7 @@ void sendLogin() {
 }
 
 // logic
-void sendPressNoti() { 
-  Firebase.pushTimestamp(fbLogsData, fbPathLogsPush);
-}
+void sendPressNoti() { Firebase.pushTimestamp(fbLogsData, fbPathLogsPush); }
 
 void turnRelay(bool flag) {
   if (isRelayOn == flag) return;
@@ -317,25 +322,60 @@ void checkPressCountTimeout() {
   // only if system enabled
   if (!systemEnabled || pressCountStartTime == 0) return;
   bool isValidTime = ms < pressCountStartTime + pressCountTimeout;
-  if (!isValidTime) {
-    if (pressCount == pressCountActivateRelay) {
-      Serial.println("Press valid!!!!");
-      Serial.println();
-      Serial.print("Press count hit. Activate relay for ");
-      Serial.print(relayTimeoutDelay);
-      Serial.print("ms.");
-      Serial.println();
-      turnRelayRemote(true);
-      Firebase.pushTimestamp(fbLogsData, fbPathLogsOpen);
-      // or use PatchData with JSON to be silent?
-      // https://github.com/mobizt/Firebase-ESP8266#patch-data
-      Firebase.setInt(fbPushData, fbPathState + "/on", 1);
+
+  // valid timeframe.
+  if (activateOnPressCount == 1) {
+    if (isValidTime) {
+      if (pressCount == pressCountActivateRelay) {
+        Serial.println("Press valid!!!!");
+        Serial.println();
+        Serial.print("Press count hit. Activate relay for ");
+        Serial.print(relayTimeoutDelay);
+        Serial.print("ms.");
+        Serial.println();
+        turnRelayRemote(true);
+        Firebase.pushTimestamp(fbLogsData, fbPathLogsOpen);
+        // or use PatchData with JSON to be silent?
+        // https://github.com/mobizt/Firebase-ESP8266#patch-data
+        Firebase.setInt(fbPushData, fbPathState + "/on", 1);
+
+        pressCountStartTime = 0;
+        pressCount = 0;
+      } else if (pressCount > pressCountActivateRelay) {
+        Serial.println("Overpressed. Reset counter.");
+        ledSecondary.Blink(120, 120).Repeat(4);
+        pressCountStartTime = 0;
+        pressCount = 0;
+      }
     } else {
-      Serial.println("Press count timed out. Reset counter.");
+      Serial.println("Overpass time. Reset counter.");
       ledSecondary.Blink(120, 120).Repeat(4);
+      pressCountStartTime = 0;
+      pressCount = 0;
     }
-    pressCountStartTime = 0;
-    pressCount = 0;
+
+  } else {
+    // time finished.
+    if (!isValidTime) {
+      if (pressCount == pressCountActivateRelay) {
+        Serial.println("Press valid!!!!");
+        Serial.println();
+        Serial.print("Press count hit. Activate relay for ");
+        Serial.print(relayTimeoutDelay);
+        Serial.print("ms.");
+        Serial.println();
+        turnRelayRemote(true);
+        Firebase.pushTimestamp(fbLogsData, fbPathLogsOpen);
+        // or use PatchData with JSON to be silent?
+        // https://github.com/mobizt/Firebase-ESP8266#patch-data
+        Firebase.setInt(fbPushData, fbPathState + "/on", 1);
+      } else {
+        Serial.println("Press count timed out. Reset counter.");
+        ledSecondary.Blink(120, 120).Repeat(4);
+      }
+      pressCountStartTime = 0;
+      pressCount = 0;
+    }
   }
 }
 
@@ -363,14 +403,23 @@ void onButtonPressed(bool flag) {
       pressCount = 0;
     }
     ++pressCount;
+
     if (pressCount > pressCountActivateRelay) {
       Serial.println();
       Serial.print("Press count overflow: ");
       Serial.print(pressCount);
       Serial.print("/");
       Serial.println(pressCountActivateRelay);
+    } else {
+      // pointless code.
+      if (activateOnPressCount == 1) {
+        if (pressCount == pressCountActivateRelay) {
+          Serial.println();
+          Serial.print("Press count HIT!");
+          Serial.println();
+        }
+      }
     }
-
   } else {
     // send notification only once if it's NOT running the detector.
     if (pressCountStartTime == 0) {
@@ -415,10 +464,11 @@ void wifiManConfigModeCallback(WiFiManager *myWiFiManager) {
 void setupWifiManager() {
   // locally.
   WiFiManager wifiManager;
-  
+
   // String msg =
-  //     "<p><strong>vkot</strong> is a cool and unique smart system!</p><br>Take "
-  //     "note of your unique smartbell ID and link it to your account:";
+  //     "<p><strong>vkot</strong> is a cool and unique smart
+  //     system!</p><br>Take " "note of your unique smartbell ID and link it to
+  //     your account:";
   // String html =
   //     "<input type='text' "
   //     "onmousedown='this.style.outline=\"none\";this.style.opacity=\"0.5\"' "
@@ -427,8 +477,8 @@ void setupWifiManager() {
   //     "99999);document.execCommand(\"copy\");var "
   //     "msg=document.getElementById(\"copy_msg\");msg.style.visibility="
   //     "\"visible\";this.setSelectionRange(0, 0);setTimeout(function "
-  //     "(){msg.style.visibility=\"hidden\";},1000);' style='border: 1px solid "
-  //     "black;border-radius: "
+  //     "(){msg.style.visibility=\"hidden\";},1000);' style='border: 1px solid
+  //     " "black;border-radius: "
   //     "12px;padding:8px;text-align:center;font-size:28px;font-weight:bold;' "
   //     "value='" +
   //     devId +
@@ -441,15 +491,15 @@ void setupWifiManager() {
   // wifiManager.addParameter(&custom_text);
   // WiFiManagerParameter copy_text_html(html.c_str());
   // wifiManager.addParameter(&copy_text_html);
-//  wifiManager.setAPStaticIPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
-//  wifiManager.setScanDispPerc(true);
+  //  wifiManager.setAPStaticIPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1),
+  //  IPAddress(255,255,255,0)); wifiManager.setScanDispPerc(true);
   // wifiManager.setRemoveDuplicateAPs(false);
   // wifiManager.setWebPortalClientCheck(true);
   wifiManager.setConfigPortalBlocking(true);
   Serial.println("Wifi is saved:");
   Serial.print(wifiManager.getWiFiIsSaved());
   // wifiManager.setConfigPortalTimeout(60*60*2);
-//  wifiManager.setAPCallback(wifiManConfigModeCallback);
+  //  wifiManager.setAPCallback(wifiManConfigModeCallback);
   if (!wifiManager.autoConnect("VKOT-DOORBELL")) {
     Serial.println("Failed to connect to network/AP and hit timeout.");
     //   Reset and try again, or maybe put it to deep sleep?
@@ -525,7 +575,9 @@ void readFirebaseStream() {
     FirebaseJson &json = fbData.jsonObject();
 
     json.get(jsonObj, "/on_timeout");
-    setRelayOnDuration(jsonObj.intValue);
+    if (jsonObj.success) {
+      setRelayOnDuration(jsonObj.intValue);
+    }
 
     json.get(jsonObj, "/on");
     if (jsonObj.success) {
@@ -540,6 +592,12 @@ void readFirebaseStream() {
     json.get(jsonObj, "/press_timeout");
     if (jsonObj.success) {
       setPressCountTimeout(jsonObj.intValue);
+    }
+
+    // new var.
+    json.get(jsonObj, "/press_on_hit");
+    if (jsonObj.success) {
+      setActivatePressCountOnHit(jsonObj.intValue);
     }
 
     json.get(jsonObj, "/enabled");
@@ -568,6 +626,8 @@ void readFirebaseStream() {
       setConfigSysEnabled(fbData.intData() == 1);
     } else if (path == "/cmd") {
       checkCommand(fbData.intData());
+    } else if (path == "/press_on_hit") {
+      setActivatePressCountOnHit(fbData.intData());
     }
   }
 }
@@ -588,7 +648,7 @@ void loopFirebase() {
 }
 
 void setup() {
-  Serial.begin(115200, SERIAL_8N1, SERIAL_TX_ONLY); //No RX
+  Serial.begin(115200, SERIAL_8N1, SERIAL_TX_ONLY);  // No RX
   delay(100);
 
 #ifdef USE_OTA
@@ -673,11 +733,11 @@ void loopWifi() {
     wifiLastDebounceTime = ms;
     int _status = WiFi.status();
     if (_status != lastWifiStatus) {
-      #ifdef APP_DEBUG
-            Serial.println();
-            Serial.print("Wifi status changed to: ");
-            Serial.print(_status);
-      #endif
+#ifdef APP_DEBUG
+      Serial.println();
+      Serial.print("Wifi status changed to: ");
+      Serial.print(_status);
+#endif
       // WiFi status changed.
       lastWifiStatus = _status;
       int _isConnected = _status == WL_CONNECTED ? 1 : 0;
@@ -686,7 +746,6 @@ void loopWifi() {
         isWifiConnected = hasWiFiConnection == 1;
         onWifiConnectionChange();
       }
-
     }
     // Serial.println(WiFi.RSSI());
     // Serial.println("--------");
@@ -718,7 +777,7 @@ void loop() {
   checkRelayOnTimer();
   readButtonState();
   checkPressCountTimeout();
-  if( isWifiConnected ){
+  if (isWifiConnected) {
     loopFirebase();
   }
   loopLed();
